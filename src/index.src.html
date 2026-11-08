@@ -1,0 +1,766 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Верстальщик планов</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@600;800&family=Manrope:wght@500;600;700;800&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+/* Layout: the plan itself is the editor; one quiet side panel appears beside whatever was clicked. */
+:root{
+  --bg:#E9EDF4; --panel:#FFFFFF; --field:#F3F5F9; --ink:#14213D; --muted:#4A5878; --line:#D3DAE6;
+  --accent:#1F5FBF; --accent-ink:#FFFFFF; --soft:#E3EBFB; --warn-bg:#FDEBD8; --warn-ink:#8A3D06;
+  --display:"Unbounded",system-ui,sans-serif; --body:"Manrope",system-ui,-apple-system,"Segoe UI",sans-serif;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#10172A; --panel:#1A2339; --field:#232E48; --ink:#E8EDF7; --muted:#A5B2CC; --line:#34405E;
+  --accent:#7FB0FF; --accent-ink:#0D1730; --soft:#26375F; --warn-bg:#4A2C12; --warn-ink:#FFD3A8; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#10172A; --panel:#1A2339; --field:#232E48; --ink:#E8EDF7; --muted:#A5B2CC; --line:#34405E;
+  --accent:#7FB0FF; --accent-ink:#0D1730; --soft:#26375F; --warn-bg:#4A2C12; --warn-ink:#FFD3A8; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.4}
+body.sheet-open{padding-bottom:52vh}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:15;background:var(--panel);border-bottom:1px solid var(--line);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:8px;
+  display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap}
+.week{display:flex;align-items:center;gap:4px;flex:1 1 auto;min-width:0}
+.week strong{font-family:var(--display);font-weight:800;font-size:17px;text-align:center;min-width:0;padding-inline:6px}
+.acts{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+button,summary{font:inherit;font-weight:700;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;min-height:44px;cursor:pointer}
+summary{display:flex;align-items:center;list-style:none}
+summary::-webkit-details-marker{display:none}
+button:hover,summary:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button.arrow{width:44px;padding:0;font-size:20px;line-height:1;flex:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.seg{display:flex}.seg button{border-radius:0}.seg button:first-child{border-radius:8px 0 0 8px}.seg button:last-child{border-radius:0 8px 8px 0;margin-left:-1px}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+body.land main{grid-template-columns:minmax(0,900px) 320px}
+.menu{position:relative}
+.menu>div{position:absolute;right:0;top:calc(100% + 6px);background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px;display:flex;flex-direction:column;gap:2px;width:250px;max-width:calc(100vw - 32px);box-shadow:0 8px 24px rgba(20,33,61,.2);z-index:30}
+.menu button{border:0;text-align:left;font-weight:600;background:transparent}
+.menu button:hover{background:var(--soft)}
+main{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px 40px;
+  display:grid;grid-template-columns:minmax(0,560px) 340px;gap:20px;justify-content:center;align-items:start}
+.planwrap{position:relative;width:100%;line-height:0;box-shadow:0 3px 18px rgba(20,33,61,.22);background:#F3F5F8}
+#planCanvas{width:100%;height:auto;display:block}
+.hot{position:absolute;background:transparent;border:0;border-radius:8px;padding:0;min-height:0;cursor:pointer;line-height:1.2;color:#1F5FBF;font-size:13px}
+.hot:hover,.hot:focus-visible{box-shadow:0 0 0 2px #1F5FBF99;background:#1F5FBF14;outline:none}
+.hot.on{box-shadow:0 0 0 2.5px #1F5FBF;background:#1F5FBF10}
+.hot.ghost{border:1.5px dashed #1F5FBF88}
+.add{position:absolute;width:30px;height:30px;min-height:0;padding:0;transform:translate(-50%,-50%);border-radius:50%;background:#FFFFFF;border:1.5px solid #1F5FBF;color:#1F5FBF;font-size:18px;line-height:1;font-weight:700;cursor:pointer}
+.add:hover{background:#1F5FBF;color:#FFFFFF}
+.plancol{display:flex;flex-direction:column;gap:12px;min-width:0}
+.hiddenbar{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.hiddenbar span{font-size:13px;font-weight:700;color:var(--muted)}
+.hiddenbar button{min-height:36px;padding:4px 10px;font-size:13px;border-style:dashed}
+.side{position:relative;min-width:0;align-self:stretch}
+.card{position:absolute;left:0;right:0;top:var(--top,0px);background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 4px 16px rgba(20,33,61,.12)}
+.hint{display:flex;flex-direction:row;gap:12px;align-items:center;position:static;box-shadow:none}
+.hint img{width:64px;height:64px;border-radius:50%;background:var(--soft);object-fit:cover;object-position:top;flex:none}
+.hint p{margin:0;font-weight:600}
+h2{margin:0;font-size:15px;font-weight:800}
+label{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:700;color:var(--muted);min-width:0}
+input,textarea{font:inherit;font-weight:500;color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:8px;padding:9px 10px;width:100%;min-width:0;min-height:44px}
+textarea{resize:vertical}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-size:12px;font-weight:800;padding:5px 10px;min-height:36px;border-radius:999px;border:2px solid transparent}
+.chip[aria-pressed="true"]{border-color:var(--ink)}
+.chip:hover{border-color:var(--accent)}
+.row{display:flex;gap:6px;flex-wrap:wrap}
+.row>button{flex:1 1 auto}
+.looks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.look{padding:3px;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:12px;line-height:1.15;background:var(--field);min-width:0}
+.look img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+.look[aria-pressed="true"]{border:2px solid var(--accent);background:var(--soft)}
+#warn{grid-column:1/-1;background:var(--warn-bg);color:var(--warn-ink);padding:8px 12px;border-radius:8px;font-weight:600;margin:0}
+#status{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:60;background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-weight:600;max-width:calc(100vw - 32px);margin:0;text-align:center}
+.modal{position:fixed;inset:0;z-index:50;background:rgba(10,16,32,.55);display:flex;justify-content:center;align-items:flex-start;overflow:auto;padding:max(16px,env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) 16px max(16px,env(safe-area-inset-left,0px))}
+.dlg{background:var(--panel);border-radius:16px;padding:18px;width:100%;max-width:640px;display:flex;flex-direction:column;gap:12px}
+.dlghead{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.dlghead h2{font-family:var(--display);font-size:18px}
+.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.opt{text-align:left;display:flex;flex-direction:column;gap:2px;font-weight:600;font-size:13px;color:var(--muted);padding:10px 12px}
+.opt b{font-size:15px;color:var(--ink);font-weight:800}
+.opt[aria-pressed="true"]{border:2px solid var(--accent);background:var(--soft)}
+.sheets{display:grid;gap:6px;margin:0 auto;width:100%}
+.sheets canvas{width:100%;height:auto;display:block;background:#fff;box-shadow:0 1px 6px rgba(20,33,61,.3)}
+ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:3px}
+details.more{font-size:14px}
+details.more summary{border:0;min-height:36px;padding:4px 0;color:var(--muted);background:transparent}
+details.more .row{align-items:flex-end}
+details.more label{flex:1 1 120px}
+select{font:inherit;color:var(--ink);background:var(--field);border:1px solid var(--line);border-radius:8px;padding:8px;min-height:44px;width:100%}
+@media (max-width:1290px){body.land main{grid-template-columns:minmax(0,1fr) 300px}}
+@media (max-width:940px){
+  main,body.land main{grid-template-columns:minmax(0,900px)}
+  body:not(.land) .planwrap{max-width:560px;margin-inline:auto}
+  .side{order:-1}
+  .card:not(.hint){position:fixed;left:0;right:0;top:auto;bottom:0;max-height:50vh;overflow:auto;border-radius:16px 16px 0 0;z-index:40;
+    padding-left:max(14px,env(safe-area-inset-left,0px));padding-right:max(14px,env(safe-area-inset-right,0px));padding-bottom:calc(14px + env(safe-area-inset-bottom,0px))}
+  .hint img{width:44px;height:44px}
+}
+@media (max-width:520px){.add{width:24px;height:24px;font-size:15px}.opts{grid-template-columns:minmax(0,1fr)}.week strong{font-size:15px}}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="week">
+    <button id="prevWeek" class="arrow" type="button" aria-label="Предыдущая неделя">‹</button>
+    <strong id="weekName"></strong>
+    <button id="nextWeek" class="arrow" type="button" aria-label="Следующая неделя">›</button>
+  </div>
+  <div class="seg" role="group" aria-label="Формат плана"><button id="viewA3" type="button">Лист А3</button><button id="viewVk" type="button">Для VK</button></div>
+  <div class="acts">
+    <button id="savePng" class="primary" type="button">Скачать картинку</button>
+    <button id="openPrint" type="button">Печать А3</button>
+    <details class="menu" id="menu"><summary>Ещё</summary><div>
+      <button id="copyPost" type="button">Скопировать текст для поста</button>
+      <button id="saveFile" type="button">Сохранить план файлом</button>
+      <button id="openFile" type="button">Открыть файл плана</button>
+      <button id="delPlan" type="button">Очистить эту неделю</button>
+    </div></details>
+    <input id="fileInput" type="file" accept=".json,application/json" hidden>
+  </div>
+</header>
+
+<main>
+  <p id="warn" hidden>Плану тесно, и низ макета обрезан. Сократите подписи или уберите часть событий.</p>
+  <div class="plancol">
+  <div class="planwrap" id="planWrap">
+    <canvas id="planCanvas" aria-label="Макет плана недели"></canvas>
+    <div id="hots"></div>
+  </div>
+  <div class="hiddenbar" id="hiddenBar"></div>
+  </div>
+  <aside class="side" id="side"></aside>
+</main>
+
+<p id="status" role="status" hidden></p>
+<textarea id="postText" hidden aria-label="Текст поста" style="position:fixed;left:16px;right:16px;bottom:60px;width:auto;height:30vh;z-index:61"></textarea>
+
+<div class="modal" id="printDlg" role="dialog" aria-modal="true" aria-labelledby="printTitle" hidden>
+  <div class="dlg">
+    <div class="dlghead"><h2 id="printTitle">Печать горизонтального А3 из листов А4</h2><button id="closePrint" type="button">Закрыть</button></div>
+    <div class="opts">
+      <button class="opt" type="button" id="opt2" data-mode="a3-2"><b>2 листа</b><span id="opt2sub"></span></button>
+      <button class="opt" type="button" id="opt4" data-mode="a3-4"><b>4 листа</b><span>Ровно А3, 42 × 29,7 см. Края нужно обрезать</span></button>
+    </div>
+    <button id="savePdf" class="primary" type="button">Скачать PDF для печати</button>
+    <div class="sheets" id="sheets"></div>
+    <ol>
+      <li>Печатайте в масштабе 100%, без «Вписать в страницу». На первом листе есть отрезок 100 мм: сверьте его линейкой.</li>
+      <li>У следующего листа отрежьте белое поле по пунктиру.</li>
+      <li>Намажьте штрихованную полосу клеем и наложите лист так, чтобы рисунок совпал.</li>
+      <li>Белые края готового плаката обрежьте по тонкой линии.</li>
+    </ol>
+    <details class="more"><summary>Настройки принтера и типография</summary>
+      <div class="row">
+        <label for="pMargin">Поля принтера<select id="pMargin"><option value="3">3 мм</option><option value="4">4 мм</option><option value="5" selected>5 мм</option><option value="7">7 мм</option></select></label>
+        <label for="pGlue">Полоса клея<select id="pGlue"><option value="5">5 мм</option><option value="8" selected>8 мм</option><option value="12">12 мм</option></select></label>
+        <button id="saveA3" type="button">PDF одним листом А3</button>
+      </div>
+    </details>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ---------- данные ---------- */
+const ALISA = /*ALISA_DATA*/{};
+const FIRST_PLAN = /*FIRST_PLAN*/null;
+const LOOKS = [
+  {id:"scientist",name:"Юный учёный"},{id:"guide",name:"Экскурсовод"},{id:"school",name:"Школьная форма"},
+  {id:"pioneer",name:"Пионерка"},{id:"sweater",name:"Свитер"},{id:"space",name:"Скафандр"}];
+const CATS = {
+  vsosh:{label:"ВсОШ",bg:"#E3EBFB",fg:"#24489C"}, game:{label:"ИГРА",bg:"#FDEBD8",fg:"#9A4508"},
+  action:{label:"АКЦИЯ",bg:"#EDE6F7",fg:"#5A3592"}, prevention:{label:"ПРОФИЛАКТИКА",bg:"#DFF2E7",fg:"#17653F"},
+  contest:{label:"КОНКУРС",bg:"#FBE3EC",fg:"#9B1F52"}, sport:{label:"СПОРТ",bg:"#D9F1F2",fg:"#0E5F66"},
+  meeting:{label:"СОВЕЩАНИЕ",bg:"#E7EBF2",fg:"#3C4A68"}, memorial:{label:"ПАМЯТНАЯ ДАТА",bg:"#2E2A3A",fg:"#FFFFFF"},
+  other:{label:"СВОЯ МЕТКА",bg:"#E7EBF2",fg:"#3C4A68"}};
+const WD = ["понедельник","вторник","среда","четверг","пятница","суббота","воскресенье"];
+const WD2 = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
+const MONTHS = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+const FORMATS = {vk:{W:1080,H:1920,M:60},a3:{W:1754,H:1240,M:56,land:true}};
+const $=id=>document.getElementById(id);
+
+/* ---------- даты ---------- */
+const parseD = s => { const [y,m,d]=s.split("-").map(Number); return new Date(y,m-1,d); };
+const fmtD = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const addDays = (d,n) => new Date(d.getFullYear(),d.getMonth(),d.getDate()+n);
+const toMonday = d => addDays(d,-((d.getDay()+6)%7));
+function weekTitle(p){
+  const a=parseD(p.monday), b=addDays(a,6);
+  if(a.getMonth()===b.getMonth()) return `${a.getDate()}–${b.getDate()} ${MONTHS[b.getMonth()]}`;
+  return `${a.getDate()} ${MONTHS[a.getMonth()]} – ${b.getDate()} ${MONTHS[b.getMonth()]}`;
+}
+const defaultNote = i => i===6 ? "Выходной" : "Учебный день";
+
+/* ---------- измерения текста ---------- */
+const DISP='"Unbounded",system-ui,sans-serif', BODY='"Manrope",system-ui,sans-serif';
+const fnt=(w,s,d)=>`${w} ${s}px ${d?DISP:BODY}`;
+const meas=document.createElement("canvas").getContext("2d");
+function setLS(c,ls){ if("letterSpacing" in c) c.letterSpacing=(ls||0)+"px"; }
+function tw(t,f,ls){ meas.font=f; setLS(meas,ls); return meas.measureText(t).width; }
+function wrap(text,f,maxW,ls){
+  const out=[];
+  for(const para of String(text).split("\n")){
+    let line="";
+    for(const w of para.split(/\s+/).filter(Boolean)){
+      const t=line?line+" "+w:w;
+      if(line && tw(t,f,ls)>maxW){ out.push(line); line=w; } else line=t;
+    }
+    if(line) out.push(line);
+  }
+  return out;
+}
+
+/* ---------- вёрстка: операции рисования и зоны для нажатия ---------- */
+function buildLayout(p,fmt,k,extra){
+  const {W,H,M}=fmt, ops=[], regs=[], u=v=>v*k;
+  const INK="#14213D",MUT="#4A5878",WHITE="#FFFFFF";
+  const rect=(x,y,w,h,r,fill)=>ops.push({t:"r",x,y,w,h,r,fill});
+  const text=(x,y,s,f,color,ls)=>ops.push({t:"x",x,y,s,f,color,ls});
+  const reg=(key,x,y,w,h,label,ghost)=>regs.push({key,x,y,w,h,label,ghost});
+  let y=u(52);
+  const show=p.alisa.show;
+  const land=!!fmt.land, sideW=W*.31, DX=M+sideW+M*.6;
+  const T=show?u(land?235:300):0, tileGap=u(32);
+  const fullW=land?sideW:W-2*M, tileX=M+fullW-T;
+  const textW=(land||!show)?fullW:fullW-T-tileGap;
+  const hdrOps=[], top=y;
+  const brow=(p.eyebrow||"").toUpperCase();
+  if(brow){ const f=fnt(700,u(26)); y+=u(26); hdrOps.push({t:"x",x:M,y,s:brow,f,color:MUT,ls:u(2)}); y+=u(14); }
+  const title=weekTitle(p);
+  let ds=u(76); while(tw(title,fnt(800,ds,true))>textW && ds>u(30)) ds-=1;
+  y+=ds*.86; hdrOps.push({t:"x",x:M,y,s:title,f:fnt(800,ds,true),color:INK});
+  reg("week",M-6,top-4,Math.min(textW,Math.max(tw(title,fnt(800,ds,true)),tw(brow,fnt(700,u(26)),u(2))))+12,y-top+14,"Дата и надпись над ней");
+  y+=u(24);
+  let after=y;
+  if(show){
+    const phrase=p.alisa.phrase.trim(), f=fnt(700,u(27)), pad=u(20), lh=u(36);
+    const bw=land?fullW-T-tileGap:textW;
+    const plines=phrase?wrap(phrase,f,bw-2*pad):[];
+    const bh=phrase?plines.length*lh+2*u(15):0;
+    const rowTop=land?y:top, rowH=land?Math.max(T,bh):T;
+    const tileY=rowTop+(rowH-T)/2, by=land?rowTop+(rowH-bh)/2:y;
+    hdrOps.push({t:"r",x:tileX,y:tileY,w:T,h:T,r:u(28),fill:"#DCE6F7"});
+    hdrOps.push({t:"i",look:p.alisa.look,x:tileX-T*.03,y:tileY+T*.03,s:T*1.06,clip:{x:tileX,y:tileY,w:T,h:T,r:u(28)}});
+    reg("alisa",tileX,tileY,T,T,"Алиса: образ и реплика");
+    if(phrase){
+      hdrOps.push({t:"r",x:M,y:by,w:bw,h:bh,r:u(22),fill:WHITE});
+      const ty=by+bh/2;
+      hdrOps.push({t:"p",pts:[[M+bw-1,ty-u(11)],[M+bw+u(18),ty],[M+bw-1,ty+u(11)]],fill:WHITE});
+      plines.forEach((l,i)=>hdrOps.push({t:"x",x:M+pad,y:by+u(15)+i*lh+u(27),s:l,f,color:INK}));
+      reg("alisa",M,by,bw,bh,"Реплика Алисы");
+    }
+    after=land?rowTop+rowH:Math.max(top+T,by+bh);
+  }
+  const themeTop=after+u(24);
+  y=themeTop;
+
+  const lines=(p.themes.lines||"").split("\n").map(s=>s.trim()).filter(Boolean);
+  const note=(p.themes.note||"").trim();
+  const tTitle=(p.themes.title||"").toUpperCase();
+  const cw=land?sideW:W-2*M, tp=u(26), tpx=u(32);
+  const tl=[]; let th=tp;
+  const hasThemes=lines.length||note;
+  if(hasThemes){
+    if(tTitle){ tl.push({s:tTitle,f:fnt(700,u(22)),c:"#B9C4DD",ls:u(1.8),h:u(32)}); th+=u(32)+u(8); }
+    const lf=fnt(600,u(30),true);
+    for(const l of lines) for(const w of wrap(l,lf,cw-2*tpx)){ tl.push({s:w,f:lf,c:WHITE,h:u(42)}); th+=u(42); }
+    if(note){ th+=u(10); const nf=fnt(500,u(22)); wrap(note,nf,cw-2*tpx).forEach(w=>{tl.push({s:w,f:nf,c:"#D5DCEB",h:u(30)});th+=u(30);}); }
+    th+=tp;
+    rect(M,y,cw,th,u(28),"#14213D");
+    let ty=y+tp;
+    tl.forEach((l,i)=>{ if(i===1&&tTitle) ty+=u(8);
+      if(l.c==="#D5DCEB"&&tl[i-1]&&tl[i-1].c!=="#D5DCEB") ty+=u(10);
+      text(M+tpx,ty+l.h*.76,l.s,l.f,l.c,l.ls); ty+=l.h; });
+    reg("themes",M,y,cw,th,"Темы недели");
+    y+=th;
+  }
+  ops.push(...hdrOps);
+
+  const sideBottom=y;
+  const dx=land?DX:M, dcw=land?W-DX-M:cw;
+  const nFull=p.days.filter(d=>d.events.some(e=>e.title.trim())).length;
+  const grow=nFull?Math.min(extra/nFull,u(110)):0;
+  const gap=u(14)+(nFull?(extra-grow*nFull)/Math.max(1,land?nFull-1:nFull):0);
+  y=land?u(44):y+gap;
+  const dateW=Math.max(u(116),tw("воскресенье",fnt(700,u(22)))+u(16));
+  const mon=parseD(p.monday);
+  p.days.forEach((day,i)=>{
+    const date=addDays(mon,i).getDate();
+    const evs=day.events.map((e,j)=>({e,j})).filter(o=>o.e.title.trim());
+    if(!evs.length) return;
+    const allMem=evs.every(o=>o.e.cat==="memorial");
+    const pad=u(22), cx=dx+u(28)+dateW, cwid=dcw-u(56)-dateW-u(26);
+    const rows=[]; let h=pad;
+    if(allMem){
+      evs.forEach((o,ei)=>{ const ls=wrap(o.e.title,fnt(800,u(27)),cwid);
+        if(ei) h+=u(8);
+        rows.push({y:h,j:o.j,kind:"mem",ls,h:u(26)+ls.length*u(36)}); h+=u(26)+ls.length*u(36); });
+    } else {
+      evs.forEach((o,ei)=>{ if(ei) h+=u(12); const r=flowEvent(o.e,cwid,u); rows.push({y:h,j:o.j,kind:"flow",r,h:r.h}); h+=r.h; });
+    }
+    const rowsH=h-pad;
+    h=Math.max(h+pad,u(116))+grow;
+    const dy=(h-rowsH)/2-pad, dateTop=y+(h-u(78))/2;
+    rect(dx,y,dcw,h,u(22),allMem?"#2E2A3A":WHITE);
+    text(dx+u(28),dateTop+u(40),String(date),fnt(800,u(50),true),allMem?WHITE:INK);
+    text(dx+u(28),dateTop+u(72),WD[i],fnt(700,u(22)),allMem?"#C9C4D6":MUT);
+    rows.forEach(r=>{
+      reg(`event:${i}:${r.j}`,cx-u(6),y+dy+r.y-u(2),cwid+u(12),r.h+u(4),`Событие: ${p.days[i].events[r.j].title}`);
+      if(r.kind==="mem"){
+        text(cx,y+dy+r.y+u(18),"ПАМЯТНАЯ ДАТА",fnt(800,u(18)),"#C9C4D6",u(1.4));
+        r.ls.forEach((l,li)=>text(cx,y+dy+r.y+u(26)+u(28)+li*u(36),l,fnt(800,u(27)),WHITE));
+      } else r.r.draw(cx,y+dy+r.y,ops);
+    });
+    regs.push({add:i,x:dx+dcw-u(30),y:y+h/2,label:`Добавить событие: ${WD[i]}`});
+    y+=h+gap;
+  });
+  if(nFull) y-=gap;
+
+  const boxes=p.duty.map((d,idx)=>({...d,idx})).filter(d=>d.value.trim());
+  const bottom=H-u(44);
+  const vf=fnt(800,u(27)), bp=u(18), bpx=u(26);
+  const drawBox=(b,bx,by,bw,bh,ls)=>{
+    rect(bx,by,bw,bh,u(22),WHITE);
+    wrap(b.label.toUpperCase(),fnt(700,u(19)),bw-2*bpx).slice(0,1).forEach(l=>text(bx+bpx,by+bp+u(21),l,fnt(700,u(19)),MUT,u(1.1)));
+    ls.forEach((l,li)=>text(bx+bpx,by+bp+u(34)+u(28)+li*u(36),l,vf,INK));
+    reg(`duty:${b.idx}`,bx,by,bw,bh,b.label);
+  };
+  let free, freeDays;
+  if(land){
+    let by=bottom;
+    if(boxes.length){
+      [...boxes].reverse().forEach(b=>{ const ls=wrap(b.value,vf,cw-2*bpx), bh=2*bp+u(34)+ls.length*u(36); by-=bh; drawBox(b,M,by,cw,bh,ls); by-=u(12); });
+      by+=u(12);
+    }
+    freeDays=bottom-y; free=Math.min(freeDays,by-sideBottom-u(14));
+  } else if(boxes.length){
+    const bw=(cw-u(14)*(boxes.length-1))/boxes.length;
+    const wrapped=boxes.map(b=>wrap(b.value,vf,bw-2*bpx));
+    const bh=2*bp+u(34)+Math.max(...wrapped.map(l=>l.length))*u(36);
+    const by=bottom-bh;
+    boxes.forEach((b,i)=>drawBox(b,M+i*(bw+u(14)),by,bw,bh,wrapped[i]));
+    free=freeDays=by-y-u(14);
+  } else free=freeDays=bottom-y;
+  return {ops,regs,free,freeDays,W,H};
+}
+function flowEvent(e,maxW,u){
+  const c=CATS[e.cat]||CATS.other;
+  const label=e.cat==="other"?((e.catLabel||"").trim().toUpperCase()):c.label;
+  const pf=fnt(800,u(18)), tf=fnt(800,u(27)), df=fnt(600,u(23)), lh=u(37);
+  const pw=label?tw(label,pf)+u(24):0;
+  const tokens=[];
+  e.title.split(/\s+/).filter(Boolean).forEach(w=>tokens.push({w,f:tf,c:"#14213D",sp:tw(" ",tf)}));
+  (e.details||"").split(/\s+/).filter(Boolean).forEach((w,i)=>tokens.push({w,f:df,c:"#4A5878",sp:tw(" ",df),gapBefore:i===0?u(14):0}));
+  let x=pw?pw+u(12):0, line=0; const placed=[];
+  tokens.forEach((t,i)=>{
+    const w0=tw(t.w,t.f), lead=i===0?0:(t.gapBefore||tokens[i-1].sp);
+    if(x+lead+w0>maxW && x>0){ line++; placed.push({...t,x:0,line}); x=w0; }
+    else { x+=lead; placed.push({...t,x,line}); x+=w0; }
+  });
+  return {h:(line+1)*lh,draw(cx,y,ops){
+    if(label){
+      ops.push({t:"r",x:cx,y:y+u(3),w:pw,h:u(30),r:u(15),fill:c.bg});
+      ops.push({t:"x",x:cx+u(12),y:y+u(24),s:label,f:pf,color:c.fg});
+    }
+    placed.forEach(t=>ops.push({t:"x",x:cx+t.x,y:y+t.line*lh+u(27),s:t.w,f:t.f,color:t.c}));
+  }};
+}
+let fontRev=0; const layoutCache=new Map();
+function getLayout(p,fk){
+  const key=fk+"|"+fontRev+"|"+JSON.stringify(p);
+  if(layoutCache.has(key)) return layoutCache.get(key);
+  const fmt=FORMATS[fk]; let k=1.16, lay, tight=false;
+  for(;;k-=.02){
+    lay=buildLayout(p,fmt,k,0);
+    if(lay.free>=0) break;
+    if(k<=.6){ tight=true; break; }
+  }
+  if(!tight) lay=buildLayout(p,fmt,k,lay.freeDays);
+  lay.tight=tight; lay.bg="#F3F5F8";
+  if(layoutCache.size>12) layoutCache.clear();
+  layoutCache.set(key,lay);
+  return lay;
+}
+
+/* ---------- рисование ---------- */
+const imgs={};
+function img(id){
+  if(!imgs[id]){ const i=new Image(); i.onload=()=>{ i.ready=true; schedule(); }; i.src=ALISA[id]; imgs[id]=i; }
+  return imgs[id];
+}
+function rr(c,x,y,w,h,r){ c.beginPath(); c.roundRect?c.roundRect(x,y,w,h,r):c.rect(x,y,w,h); }
+function drawPlan(c,lay){
+  c.save(); c.beginPath(); c.rect(0,0,lay.W,lay.H); c.clip();
+  c.fillStyle=lay.bg; c.fillRect(0,0,lay.W,lay.H);
+  c.textBaseline="alphabetic";
+  for(const o of lay.ops){
+    if(o.t==="r"){ c.fillStyle=o.fill; rr(c,o.x,o.y,o.w,o.h,o.r); c.fill(); }
+    else if(o.t==="x"){ c.font=o.f; setLS(c,o.ls); c.fillStyle=o.color; c.fillText(o.s,o.x,o.y); setLS(c,0); }
+    else if(o.t==="p"){ c.fillStyle=o.fill; c.beginPath(); o.pts.forEach((q,i)=>i?c.lineTo(q[0],q[1]):c.moveTo(q[0],q[1])); c.closePath(); c.fill(); }
+    else if(o.t==="i"){ const i=img(o.look); if(i.ready){ c.save(); if(o.clip){ rr(c,o.clip.x,o.clip.y,o.clip.w,o.clip.h,o.clip.r); c.clip(); } c.drawImage(i,o.x,o.y,o.s,o.s); c.restore(); } }
+  }
+  c.restore();
+}
+
+/* ---------- печать: разбивка А3 на листы А4 ---------- */
+let printMode="a3-2";
+function sheetCfg(mode=printMode){
+  const m=+$("pMargin").value, g=+$("pGlue").value;
+  const exact=mode==="a3-4", c=2, r=exact?2:1, land=exact;
+  const SW=land?297:210, SH=land?210:297, P=SW-2*m, Q=SH-2*m;
+  const GW=c*P-(c-1)*g, GH=r*Q-(r-1)*g;
+  let pw,ph;
+  if(exact){ pw=420; ph=297; } else { pw=GW; ph=pw*297/420; if(ph>GH){ ph=GH; pw=ph*420/297; } }
+  return {exact,c,r,land,m,g,SW,SH,P,Q,GW,GH,pw,ph,ox:(GW-pw)/2,oy:(GH-ph)/2};
+}
+function chip(c,t,x,y,size,al){
+  c.font=`800 ${size}px ${BODY}`; c.textAlign=al;
+  const w=c.measureText(t).width, x0=al==="center"?x-w/2:x;
+  c.fillStyle="#FFFFFF"; c.fillRect(x0-size*.4,y-size*.95,w+size*.8,size*1.3);
+  c.fillStyle="#14213D"; c.fillText(t,x,y); c.textAlign="left";
+}
+function drawSheet(c,s,i,j,ppm,lay){
+  const mm=v=>v*ppm, {m,g,P,Q,SW,SH}=s, n=j*s.c+i+1, total=s.c*s.r;
+  c.setTransform(1,0,0,1,0,0);
+  c.fillStyle="#FFFFFF"; c.fillRect(0,0,mm(SW),mm(SH));
+  const X=i*(P-g), Y=j*(Q-g), scale=s.pw/lay.W;
+  c.save(); c.beginPath(); c.rect(mm(m),mm(m),mm(P),mm(Q)); c.clip();
+  c.translate(mm(m-X+s.ox),mm(m-Y+s.oy));
+  c.save(); c.scale(mm(scale),mm(scale)); drawPlan(c,lay); c.restore();
+  if(s.ox>=1||s.oy>=1){ c.strokeStyle="#8C98B3"; c.lineWidth=Math.max(.5,mm(.12)); c.strokeRect(0,0,mm(s.pw),mm(s.ph)); }
+  c.restore();
+  const INK="#14213D";
+  const label=(t,x,y,size,w=700,al="left")=>{ c.font=`${w} ${mm(size)}px ${BODY}`; c.fillStyle=INK; c.textAlign=al; c.fillText(t,x,y); c.textAlign="left"; };
+  const strip=(x,y,w,h)=>{
+    c.save(); c.beginPath(); c.rect(mm(x),mm(y),mm(w),mm(h)); c.clip();
+    c.fillStyle="rgba(255,255,255,.45)"; c.fillRect(mm(x),mm(y),mm(w),mm(h));
+    c.strokeStyle="rgba(20,33,61,.32)"; c.lineWidth=mm(.2);
+    const big=w+h; c.beginPath();
+    for(let d=-big;d<big;d+=3){ c.moveTo(mm(x+d),mm(y)); c.lineTo(mm(x+d+h),mm(y+h)); }
+    c.stroke(); c.restore();
+  };
+  const fs=Math.min(2.8,g*.42);
+  if(i<s.c-1){ strip(m+P-g,m,g,Q);
+    c.strokeStyle=INK; c.lineWidth=mm(.25); c.beginPath(); c.moveTo(mm(m+P-g),mm(m)); c.lineTo(mm(m+P-g),mm(m+Q)); c.stroke();
+    c.save(); c.translate(mm(m+P-g/2+fs*.36),mm(m+Q/2)); c.rotate(-Math.PI/2); chip(c,`КЛЕЙ · сюда ляжет лист ${n+1}`,mm(-40),0,mm(fs),"center"); c.restore(); }
+  if(j<s.r-1){ strip(m,m+Q-g,P,g);
+    c.strokeStyle=INK; c.lineWidth=mm(.25); c.beginPath(); c.moveTo(mm(m),mm(m+Q-g)); c.lineTo(mm(m+P),mm(m+Q-g)); c.stroke();
+    chip(c,`КЛЕЙ · сюда ляжет лист ${n+s.c}`,mm(m+P/2+(n===1?30:0)),mm(m+Q-g/2+fs*.36),mm(fs),"center"); }
+  if(n===1){
+    const vert=j>=s.r-1; c.save();
+    if(vert){ c.translate(mm(m+P-g/2),mm(m+6)); c.rotate(Math.PI/2); } else c.translate(mm(m+6),mm(m+Q-g/2));
+    c.fillStyle="#FFFFFF"; c.fillRect(mm(-1),mm(-g/2+.6),mm(102),mm(g-1.2));
+    c.strokeStyle=INK; c.lineWidth=mm(.3); c.beginPath(); c.moveTo(0,0); c.lineTo(mm(100),0);
+    for(let t=0;t<=100;t+=10){ const hh=t%50?.8:1.6; c.moveTo(mm(t),mm(-hh)); c.lineTo(mm(t),mm(hh)); } c.stroke();
+    chip(c,"100 мм",mm(103),mm(fs*.36),mm(fs),"left"); c.restore();
+  }
+  c.setLineDash([mm(2),mm(1.4)]); c.strokeStyle=INK; c.lineWidth=mm(.25);
+  if(i>0){ c.beginPath(); c.moveTo(mm(m),0); c.lineTo(mm(m),mm(SH)); c.stroke(); }
+  if(j>0){ c.beginPath(); c.moveTo(0,mm(m)); c.lineTo(mm(SW),mm(m)); c.stroke(); }
+  c.setLineDash([]);
+  const ms=Math.min(2.4,m*.55), ty=mm(m*.68);
+  label(`Лист ${n} из ${total}`,mm(SW-m),ty,ms,800,"right");
+  if(j>0) label("отрезать белое поле по пунктиру",mm(m),ty,ms,600);
+  if(i>0&&j===0){ c.save(); c.translate(mm(m*.68),mm(m+Q/2)); c.rotate(-Math.PI/2); label("отрезать белое поле по пунктиру",0,0,ms,600,"center"); c.restore(); }
+}
+function makeSheet(s,i,j,ppm,lay){
+  const cv=document.createElement("canvas");
+  cv.width=Math.round(s.SW*ppm); cv.height=Math.round(s.SH*ppm);
+  drawSheet(cv.getContext("2d"),s,i,j,ppm,lay);
+  return cv;
+}
+function renderPrint(){
+  const s=sheetCfg(), lay=getLayout(cur(),"a3"), box=$("sheets");
+  box.style.gridTemplateColumns=`repeat(${s.c},minmax(0,1fr))`;
+  box.style.maxWidth="580px";
+  box.textContent="";
+  for(let j=0;j<s.r;j++) for(let i=0;i<s.c;i++){
+    const cv=makeSheet(s,i,j,1.8,lay); cv.setAttribute("aria-label",`Лист ${j*s.c+i+1}`); box.append(cv);
+  }
+  const s2=sheetCfg("a3-2"), cm=v=>(v/10).toLocaleString("ru-RU",{maximumFractionDigits:1});
+  $("opt2sub").textContent=`Почти А3, ${cm(s2.pw)} × ${cm(s2.ph)} см. Листы рядом, меньше бумаги`;
+  $("opt2").setAttribute("aria-pressed",printMode==="a3-2"); $("opt4").setAttribute("aria-pressed",printMode==="a3-4");
+}
+async function pdfSheets(){
+  if(!window.jspdf) throw new Error("Не загрузилась библиотека PDF. Проверьте интернет и обновите страницу.");
+  const s=sheetCfg(), lay=getLayout(cur(),"a3"), ppm=200/25.4, o=s.land?"landscape":"portrait";
+  const doc=new window.jspdf.jsPDF({orientation:o,unit:"mm",format:"a4",compress:true});
+  for(let j=0;j<s.r;j++) for(let i=0;i<s.c;i++){
+    if(i||j) doc.addPage("a4",o);
+    doc.addImage(makeSheet(s,i,j,ppm,lay).toDataURL("image/jpeg",.93),"JPEG",0,0,s.SW,s.SH,undefined,"FAST");
+    await new Promise(r=>setTimeout(r));
+  }
+  return doc.output("blob");
+}
+function pdfWhole(){
+  if(!window.jspdf) throw new Error("Не загрузилась библиотека PDF. Проверьте интернет и обновите страницу.");
+  const lay=getLayout(cur(),"a3"), cv=document.createElement("canvas"), sc=3307/lay.W;
+  cv.width=3307; cv.height=Math.round(lay.H*sc);
+  const c=cv.getContext("2d"); c.scale(sc,sc); drawPlan(c,lay);
+  const doc=new window.jspdf.jsPDF({orientation:"landscape",unit:"mm",format:"a3",compress:true});
+  doc.addImage(cv.toDataURL("image/jpeg",.93),"JPEG",0,0,420,297,undefined,"FAST");
+  return doc.output("blob");
+}
+
+/* ---------- хранение ---------- */
+let store={plans:{},current:null,view:innerWidth<700?"vk":"a3"}, storageOk=true;
+const KEY="school-week-plans.v1";
+function normalize(raw){
+  const r=raw||{}, str=(v,d="")=>typeof v==="string"?v:d;
+  const p={id:str(r.id,"p"+Date.now().toString(36)),monday:/^\d{4}-\d\d-\d\d$/.test(r.monday||"")?r.monday:fmtD(toMonday(new Date())),eyebrow:str(r.eyebrow,"План работы школы")};
+  const a=r.alisa||{};
+  p.alisa={show:a.show!==false,look:LOOKS.some(l=>l.id===a.look)?a.look:"guide",phrase:str(a.phrase)};
+  const t=r.themes||{}; p.themes={title:str(t.title,"Темы недели"),lines:str(t.lines),note:str(t.note)};
+  p.days=Array.from({length:7},(_,i)=>{ const d=(r.days||[])[i]||{};
+    return {note:"",events:(Array.isArray(d.events)?d.events:[]).map(e=>({cat:CATS[e&&e.cat]?e.cat:"other",catLabel:str(e&&e.catLabel),title:str(e&&e.title),details:str(e&&e.details)}))}; });
+  const dt=Array.isArray(r.duty)?r.duty:[], labels=["Дежурные классы","Дежурная администрация"];
+  p.duty=[0,1].map(i=>({label:labels[i],value:str(dt[i]&&dt[i].value)}));
+  return p;
+}
+function loadStore(){
+  try{ const s=JSON.parse(localStorage.getItem(KEY)||"null");
+    if(s&&s.plans&&Object.keys(s.plans).length){ store.current=s.current; if(s.view==="vk"||s.view==="a3") store.view=s.view; for(const id in s.plans) store.plans[id]=normalize(s.plans[id]); } }catch(e){}
+  if(!Object.keys(store.plans).length){ const p=normalize(FIRST_PLAN||{monday:fmtD(toMonday(new Date()))}); store.plans[p.id]=p; store.current=p.id; }
+  if(!store.plans[store.current]) store.current=Object.keys(store.plans)[0];
+}
+let saveT;
+function persist(){
+  clearTimeout(saveT);
+  saveT=setTimeout(()=>{
+    try{ localStorage.setItem(KEY,JSON.stringify(store)); storageOk=true; }
+    catch(e){ if(storageOk) say("Браузер не даёт хранить планы. Сохраните план файлом в меню «Ещё»."); storageOk=false; }
+  },300);
+}
+const cur=()=>store.plans[store.current];
+let sayT;
+function say(t){ const s=$("status"); s.textContent=t; s.hidden=false; clearTimeout(sayT); sayT=setTimeout(()=>{s.hidden=true;},3800); }
+let dlP=null;
+async function saveBlob(name,data){
+  dlP=dlP||(window.claude&&claude.use?claude.use("downloads"):Promise.resolve(null));
+  const d=await dlP;
+  if(d){
+    try{ await d.save({filename:name,data}); say(`Сохранено: ${name}`); }
+    catch(e){ say(e&&e.code==="declined"?"Сохранение отменено.":"Здесь файл не сохранить. Откройте программу в обычном браузере."); }
+    return;
+  }
+  const a=document.createElement("a"); a.href=URL.createObjectURL(data instanceof Blob?data:new Blob([data]));
+  a.download=name; document.body.append(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+  say(`Сохранено: ${name}`);
+}
+const fileBase=p=>"План "+weekTitle(p);
+
+/* ---------- неделя ---------- */
+function goWeek(mondayStr){
+  dropBlanks(null);
+  let p=Object.values(store.plans).find(x=>x.monday===mondayStr);
+  if(!p){
+    const c=cur(), id="p"+mondayStr.replace(/-/g,"")+Date.now().toString(36);
+    p=normalize({id,monday:mondayStr,eyebrow:c.eyebrow,alisa:{show:c.alisa.show,look:c.alisa.look,phrase:"Внимание, экипаж! "},
+      themes:{title:c.themes.title},duty:c.duty.map(d=>({label:d.label,value:""}))});
+    store.plans[id]=p;
+  }
+  store.current=p.id; select(null); changed();
+}
+
+/* ---------- правка на плане ---------- */
+let sel=null;
+function dropBlanks(keep){
+  cur().days.forEach(d=>{ d.events=d.events.filter(e=>e===keep||e.title.trim()); });
+}
+function previewPlan(){
+  const m=sel&&sel.match(/^event:(\d+):(\d+)$/); if(!m) return cur();
+  const e=cur().days[m[1]].events[m[2]]; if(!e||e.title.trim()) return cur();
+  const c=JSON.parse(JSON.stringify(cur())); c.days[m[1]].events[m[2]].title="Новое событие"; return c;
+}
+function eventOf(key){ const m=key&&key.match(/^event:(\d+):(\d+)$/); return m?{i:+m[1],j:+m[2],e:cur().days[m[1]].events[m[2]]}:null; }
+function select(key,focusId){
+  const target=eventOf(key);
+  dropBlanks(target&&target.e);
+  if(target) key=`event:${target.i}:${cur().days[target.i].events.indexOf(target.e)}`;
+  sel=key; renderPanel(); render();
+  const f=focusId?$(focusId):document.querySelector(".card input,.card textarea");
+  if(sel&&f&&matchMedia("(min-width:941px)").matches) f.focus();
+  else if(sel&&focusId&&f) f.focus();
+}
+function esc(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+const done=`<button type="button" class="primary" data-act="done">Готово</button>`;
+function renderPanel(){
+  const p=cur(), side=$("side"), mon=parseD(p.monday);
+  document.body.classList.toggle("sheet-open",!!sel&&matchMedia("(max-width:940px)").matches);
+  if(!sel){ side.innerHTML=`<div class="card hint"><img src="${ALISA[p.alisa.look]}" alt=""><p>Нажмите на любой текст на плане и измените его. «+» добавляет событие в день. Пустые дни на план не попадают.</p></div>`; return; }
+  let h="";
+  const ev=eventOf(sel);
+  if(sel==="week") h=`<h2>Дата и надпись</h2>
+    <label for="fMonday">Перейти к неделе<input id="fMonday" type="date" value="${p.monday}"></label>
+    <label for="fEyebrow">Надпись над датой<input id="fEyebrow" value="${esc(p.eyebrow)}" data-f="eyebrow"></label>${done}`;
+  else if(sel==="alisa") h=`<h2>Алиса</h2>
+    <label for="fPhrase">Что она говорит<textarea id="fPhrase" rows="2" data-f="alisa.phrase">${esc(p.alisa.phrase)}</textarea></label>
+    <div class="looks">${LOOKS.map(l=>`<button type="button" class="look" id="look-${l.id}" data-look="${l.id}" aria-pressed="${l.id===p.alisa.look}"><img src="${ALISA[l.id]}" alt="">${l.name}</button>`).join("")}</div>
+    <div class="row"><button type="button" data-act="toggleAlisa">${p.alisa.show?"Убрать Алису с плана":"Показать Алису"}</button>${done}</div>`;
+  else if(sel==="themes") h=`<h2>Темы недели</h2>
+    <label for="fThemes">Каждая тема с новой строки<textarea id="fThemes" rows="4" data-f="themes.lines">${esc(p.themes.lines)}</textarea></label>
+    <label for="fThemeNote">Подпись мелким шрифтом<input id="fThemeNote" value="${esc(p.themes.note)}" data-f="themes.note"></label>${done}`;
+  else if(sel.startsWith("duty:")){ const d=+sel.slice(5); h=`<h2>${esc(p.duty[d].label)}</h2>
+    <label for="fD${d}">${d===0?"Классы":"Фамилии, каждая с новой строки"}<textarea id="fD${d}" rows="3" data-d="${d}">${esc(p.duty[d].value)}</textarea></label>${done}`; }
+  else if(ev&&ev.e){ const {i,j,e}=ev, d=addDays(mon,i), n=p.days[i].events.length;
+    h=`<h2>${WD[i]}, ${d.getDate()} ${MONTHS[d.getMonth()]}</h2>
+    <label for="fTitle">Название<input id="fTitle" value="${esc(e.title)}" placeholder="Что будет" data-ev="title"></label>
+    <label for="fDetails">Класс, кабинет, время<input id="fDetails" value="${esc(e.details)}" placeholder="8А · каб. 27 · 15:00" data-ev="details"></label>
+    <div class="chips" role="group" aria-label="Метка">${Object.entries(CATS).map(([k,v])=>`<button type="button" class="chip" id="cat-${k}" data-cat="${k}" aria-pressed="${k===e.cat}" style="background:${v.bg};color:${v.fg}">${esc(k==="other"?"СВОЯ…":v.label)}</button>`).join("")}</div>
+    ${e.cat==="other"?`<label for="fCustom">Текст метки<input id="fCustom" value="${esc(e.catLabel)}" placeholder="ЭКСКУРСИЯ" data-ev="catLabel"></label>`:""}
+    <div class="row">
+      ${n>1?`<button type="button" data-act="up" aria-label="Переместить выше">↑</button><button type="button" data-act="down" aria-label="Переместить ниже">↓</button>`:""}
+      <button type="button" data-act="del">Удалить</button>${done}
+    </div>`; }
+  else { sel=null; return renderPanel(); }
+  side.innerHTML=`<div class="card" id="card">${h}</div>`;
+}
+function placeCard(lay){
+  const c=$("card"); if(!c||!sel) return;
+  const rs=lay.regs.filter(r=>r.key===sel); if(!rs.length) return;
+  const wrap=$("planWrap"), sc=wrap.clientWidth/lay.W;
+  const y=rs[rs.length-1].y*sc, max=Math.max(0,wrap.clientHeight-c.offsetHeight);
+  c.style.setProperty("--top",Math.min(y,max)+"px");
+}
+function changed(){ schedule(); persist(); }
+function onPanelInput(e){
+  const t=e.target, p=cur();
+  if(t.id==="fMonday"){ if(t.value) goWeek(fmtD(toMonday(parseD(t.value)))); return; }
+  if(t.dataset.f){ const path=t.dataset.f.split("."); let o=p; for(let i=0;i<path.length-1;i++) o=o[path[i]]; o[path[path.length-1]]=t.value; return changed(); }
+  if(t.dataset.ev){ const ev=eventOf(sel); if(ev&&ev.e){ ev.e[t.dataset.ev]=t.value; changed(); } return; }
+  if(t.dataset.n!==undefined){ p.days[t.dataset.n].note=t.value; return changed(); }
+  if(t.dataset.d!==undefined){ p.duty[t.dataset.d].value=t.value; return changed(); }
+}
+function addEvent(i){
+  dropBlanks(null);
+  const e=cur().days[i].events; e.push({cat:"game",catLabel:"",title:"",details:""});
+  select(`event:${i}:${e.length-1}`,"fTitle"); changed();
+}
+function onPanelClick(e){
+  const b=e.target.closest("button"); if(!b) return;
+  const p=cur();
+  if(b.dataset.look){ p.alisa.look=b.dataset.look; document.querySelectorAll(".look").forEach(x=>x.setAttribute("aria-pressed",x===b)); return changed(); }
+  if(b.dataset.cat){ const ev=eventOf(sel); ev.e.cat=b.dataset.cat; const id=b.id; renderPanel(); $(b.dataset.cat==="other"?"fCustom":id).focus(); return changed(); }
+  const a=b.dataset.act; if(!a) return;
+  if(a==="done"){ const prev=sel; select(null); changed(); const h=[...document.querySelectorAll(".hot")].find(x=>x.dataset.k===prev); if(h) h.focus(); return; }
+  if(a==="toggleAlisa"){ p.alisa.show=!p.alisa.show; renderPanel(); return changed(); }
+  if(a==="add") return addEvent(+b.dataset.i);
+  const ev=eventOf(sel); if(!ev) return;
+  const list=p.days[ev.i].events, j=ev.j;
+  if(a==="del"){ list.splice(j,1); select(null); return changed(); }
+  const to=a==="up"?j-1:j+1;
+  if(to>=0&&to<list.length){ [list[j],list[to]]=[list[to],list[j]]; sel=`event:${ev.i}:${to}`; }
+  changed();
+}
+
+/* ---------- кнопки ---------- */
+let delArmed=0;
+function delPlan(btn){
+  if(Date.now()-delArmed>4000){ delArmed=Date.now(); btn.textContent="Нажмите ещё раз, чтобы очистить"; setTimeout(()=>{btn.textContent="Очистить эту неделю";delArmed=0;},4000); return; }
+  delArmed=0; btn.textContent="Очистить эту неделю"; $("menu").open=false;
+  const c=cur(), t=weekTitle(c);
+  store.plans[c.id]=normalize({id:c.id,monday:c.monday,eyebrow:c.eyebrow,alisa:{show:c.alisa.show,look:c.alisa.look,phrase:""},themes:{title:c.themes.title},duty:c.duty.map(d=>({label:d.label,value:""}))});
+  select(null); changed(); say(`Неделя ${t} очищена.`);
+}
+async function importFile(f){
+  try{ const raw=JSON.parse(await f.text()); if(!raw||!raw.days) throw 0;
+    const p=normalize(raw);
+    const same=Object.values(store.plans).find(x=>x.monday===p.monday);
+    if(same) delete store.plans[same.id];
+    p.id="p"+Date.now().toString(36); store.plans[p.id]=p; store.current=p.id;
+    select(null); changed(); say(`Открыт план: ${weekTitle(p)}.`);
+  }catch(e){ say("Этот файл не похож на план. Нужен файл, сохранённый через «Сохранить план файлом»."); }
+}
+function postText(p){
+  const mon=parseD(p.monday), out=[`${p.eyebrow}: ${weekTitle(p)}`];
+  if(p.alisa.show&&p.alisa.phrase.trim()) out.push("",`Алиса: ${p.alisa.phrase.trim()}`);
+  const th=p.themes.lines.split("\n").map(s=>s.trim()).filter(Boolean);
+  if(th.length) out.push("",p.themes.title+":",...th.map(s=>"• "+s));
+  p.days.forEach((d,i)=>{ const ee=d.events.filter(e=>e.title.trim()); if(!ee.length) return;
+    out.push("",`${WD2[i]}, ${addDays(mon,i).getDate()} ${MONTHS[addDays(mon,i).getMonth()]}`);
+    ee.forEach(e=>{ const l=e.cat==="other"?(e.catLabel||"").trim():CATS[e.cat].label; out.push(`— ${l?l+": ":""}${e.title.trim()}${e.details.trim()?" ("+e.details.trim()+")":""}`); }); });
+  const du=p.duty.filter(d=>d.value.trim()); if(du.length) out.push("",...du.map(d=>`${d.label}: ${d.value.trim().replace(/\n/g,", ")}`));
+  return out.join("\n");
+}
+let raf=0, hotSig="";
+function schedule(){ if(raf) return; raf=requestAnimationFrame(()=>{ raf=0; render(); }); }
+function render(){
+  const lay=getLayout(previewPlan(),store.view);
+  document.body.classList.toggle("land",store.view==="a3");
+  $("viewA3").setAttribute("aria-pressed",store.view==="a3"); $("viewVk").setAttribute("aria-pressed",store.view==="vk");
+  $("warn").hidden=!lay.tight;
+  const c=$("planCanvas"); c.width=lay.W; c.height=lay.H; drawPlan(c.getContext("2d"),lay);
+  $("weekName").textContent=weekTitle(cur());
+  const pc=(v,t)=>(v/t*100).toFixed(3)+"%";
+  const html=lay.regs.map(r=>r.add!==undefined
+    ?`<button type="button" class="add" data-add="${r.add}" style="left:${pc(r.x,lay.W)};top:${pc(r.y,lay.H)}" aria-label="${esc(r.label)}" title="Добавить событие">+</button>`
+    :`<button type="button" class="hot${r.ghost?" ghost":""}${r.key===sel?" on":""}" data-k="${r.key}" style="left:${pc(r.x,lay.W)};top:${pc(r.y,lay.H)};width:${pc(r.w,lay.W)};height:${pc(r.h,lay.H)}" aria-label="${esc(r.label)}">${r.ghost?esc(r.ghost):""}</button>`).join("");
+  if(html!==hotSig){ const a=document.activeElement, k=a&&a.dataset&&(a.dataset.k||a.dataset.add); $("hots").innerHTML=html; hotSig=html;
+    if(k){ const n=$("hots").querySelector(`[data-k="${k}"],[data-add="${k}"]`); if(n) n.focus(); } }
+  const pv=previewPlan(), mon=parseD(pv.monday), miss=[];
+  pv.days.forEach((d,i)=>{ if(!d.events.some(e=>e.title.trim())) miss.push(`<button type="button" data-day="${i}" aria-label="Добавить событие: ${WD[i]}">+ ${WD2[i]} ${addDays(mon,i).getDate()}</button>`); });
+  pv.duty.forEach((d,i)=>{ if(!d.value.trim()) miss.push(`<button type="button" data-open="duty:${i}">+ ${esc(d.label)}</button>`); });
+  if(!pv.themes.lines.trim()&&!pv.themes.note.trim()) miss.push(`<button type="button" data-open="themes">+ Темы недели</button>`);
+  if(!pv.alisa.show) miss.push(`<button type="button" data-open="alisa">+ Алиса</button>`);
+  const mh=miss.length?`<span>Нет на плане:</span>${miss.join("")}`:"";
+  if($("hiddenBar").dataset.sig!==mh){ $("hiddenBar").innerHTML=mh; $("hiddenBar").dataset.sig=mh; }
+  placeCard(lay);
+}
+function busy(btn,fn){ return async()=>{ const old=btn.textContent; btn.disabled=true; btn.textContent="Собираю…";
+  await new Promise(r=>setTimeout(r,30));
+  try{ await fn(); }catch(e){ say(e&&e.message?e.message:"Не получилось собрать файл."); }
+  btn.disabled=false; btn.textContent=old; }; }
+let printReturn=null;
+function openPrint(){ dropBlanks(null); printReturn=document.activeElement; $("printDlg").hidden=false; renderPrint(); $("closePrint").focus(); }
+function closePrint(){ $("printDlg").hidden=true; if(printReturn) printReturn.focus(); }
+
+/* ---------- запуск ---------- */
+loadStore();
+LOOKS.forEach(l=>img(l.id));
+renderPanel();
+render();
+$("side").addEventListener("input",onPanelInput);
+$("side").addEventListener("click",onPanelClick);
+$("hots").addEventListener("click",e=>{ const b=e.target.closest("button"); if(!b) return; if(b.dataset.add!==undefined) return addEvent(+b.dataset.add); select(b.dataset.k); });
+$("hiddenBar").addEventListener("click",e=>{ const b=e.target.closest("button"); if(!b) return;
+  if(b.dataset.day!==undefined) return addEvent(+b.dataset.day);
+  if(b.dataset.open==="alisa"){ cur().alisa.show=true; changed(); }
+  select(b.dataset.open); });
+$("prevWeek").onclick=()=>goWeek(fmtD(addDays(parseD(cur().monday),-7)));
+$("nextWeek").onclick=()=>goWeek(fmtD(addDays(parseD(cur().monday),7)));
+$("delPlan").onclick=e=>delPlan(e.currentTarget);
+$("saveFile").onclick=()=>{ $("menu").open=false; saveBlob(fileBase(cur())+".json",JSON.stringify(cur(),null,1)); };
+$("openFile").onclick=()=>{ $("menu").open=false; $("fileInput").click(); };
+$("fileInput").addEventListener("change",e=>{ if(e.target.files[0]) importFile(e.target.files[0]); e.target.value=""; });
+[["viewA3","a3"],["viewVk","vk"]].forEach(([id,v])=>{ $(id).onclick=()=>{ store.view=v; changed(); }; });
+$("openPrint").onclick=openPrint; $("closePrint").onclick=closePrint;
+$("printDlg").addEventListener("click",e=>{ if(e.target===$("printDlg")) closePrint(); });
+[$("opt2"),$("opt4")].forEach(b=>b.onclick=()=>{ printMode=b.dataset.mode; renderPrint(); });
+["pMargin","pGlue"].forEach(id=>$(id).addEventListener("change",renderPrint));
+document.addEventListener("keydown",e=>{ if(e.key!=="Escape") return; if(!$("printDlg").hidden) return closePrint(); if(sel){ select(null); changed(); } });
+document.addEventListener("click",e=>{ if($("menu").open&&!$("menu").contains(e.target)) $("menu").open=false; });
+$("savePng").onclick=busy($("savePng"),async()=>{ dropBlanks(null); const lay=getLayout(cur(),store.view), sc=store.view==="a3"?2:1, c=document.createElement("canvas"); c.width=lay.W*sc; c.height=lay.H*sc; const x=c.getContext("2d"); x.scale(sc,sc); drawPlan(x,lay);
+  const b=await new Promise(r=>c.toBlob(r,"image/png")); await saveBlob(fileBase(cur())+".png",b); });
+$("savePdf").onclick=busy($("savePdf"),async()=>{ const b=await pdfSheets(); await saveBlob(fileBase(cur())+" - листы для склейки.pdf",b); });
+$("saveA3").onclick=busy($("saveA3"),async()=>{ await saveBlob(fileBase(cur())+" - А3.pdf",pdfWhole()); });
+$("copyPost").onclick=()=>{ $("menu").open=false; const s=postText(cur()), ta=$("postText"); ta.value=s;
+  const fall=()=>{ ta.hidden=false; ta.focus(); ta.select(); say("Скопируйте выделенный текст: Ctrl+C."); };
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(s).then(()=>{ ta.hidden=true; say("Текст поста скопирован."); },fall); else fall(); };
+if(document.fonts&&document.fonts.load){
+  const specs=[`800 40px "Unbounded"`,`600 40px "Unbounded"`,`500 20px "Manrope"`,`600 20px "Manrope"`,`700 20px "Manrope"`,`800 20px "Manrope"`];
+  Promise.allSettled(specs.map(s=>document.fonts.load(s,"Планы недели 0123"))).then(()=>{ fontRev++; schedule(); });
+}
+</script>
+</body>
+</html>
