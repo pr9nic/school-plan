@@ -72,6 +72,10 @@ textarea{resize:vertical}
 .chip{font-size:12px;font-weight:800;padding:5px 10px;min-height:36px;border-radius:999px;border:2px solid transparent}
 .chip[aria-pressed="true"]{border-color:var(--ink)}
 .chip:hover{border-color:var(--accent)}
+.swatches{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.swatches span{font-size:13px;font-weight:700;color:var(--muted);margin-right:4px}
+.swatch{width:36px;height:36px;min-height:0;padding:0;border-radius:50%;border:2px solid #8C98B3;color:var(--muted);line-height:1}
+.swatch[aria-pressed="true"]{border-color:var(--ink);box-shadow:0 0 0 2px var(--accent)}
 .row{display:flex;gap:6px;flex-wrap:wrap}
 .row>button{flex:1 1 auto}
 .looks{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
@@ -183,6 +187,7 @@ const CATS = {
   contest:{label:"КОНКУРС",bg:"#FBE3EC",fg:"#9B1F52"}, sport:{label:"СПОРТ",bg:"#D9F1F2",fg:"#0E5F66"},
   meeting:{label:"СОВЕЩАНИЕ",bg:"#E7EBF2",fg:"#3C4A68"}, memorial:{label:"ПАМЯТНАЯ ДАТА",bg:"#2E2A3A",fg:"#FFFFFF"},
   other:{label:"СВОЯ МЕТКА",bg:"#E7EBF2",fg:"#3C4A68"}};
+const HL = {yellow:{name:"Жёлтый",c:"#FFEFA8"},red:{name:"Красный",c:"#FFD9D4"},green:{name:"Зелёный",c:"#CFF1DA"},blue:{name:"Голубой",c:"#D3E6FF"}};
 const WD = ["понедельник","вторник","среда","четверг","пятница","суббота","воскресенье"];
 const WD2 = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"];
 const MONTHS = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
@@ -288,17 +293,26 @@ function buildLayout(p,fmt,k,extra){
 
   const sideBottom=y;
   const dx=land?DX:M, dcw=land?W-DX-M:cw;
-  const nFull=p.days.filter(d=>d.events.some(e=>e.title.trim())).length;
+  const cards=[];
+  p.days.forEach((day,i)=>{
+    const items=day.events.map((e,j)=>({e,j})).filter(o=>o.e.title.trim());
+    const groups={};
+    items.filter(o=>o.e.to>i).forEach(o=>{ (groups[o.e.to]=groups[o.e.to]||[]).push(o); });
+    Object.keys(groups).map(Number).sort((a,b)=>b-a).forEach(to=>cards.push({i,to,evs:groups[to]}));
+    const single=items.filter(o=>!(o.e.to>i));
+    if(single.length) cards.push({i,to:i,evs:single});
+  });
+  const nFull=cards.length;
   const grow=nFull?Math.min(extra/nFull,u(110)):0;
   const gap=u(14)+(nFull?(extra-grow*nFull)/Math.max(1,land?nFull-1:nFull):0);
   y=land?u(44):y+gap;
   const dateW=Math.max(u(116),tw("воскресенье",fnt(700,u(22)))+u(16));
   const mon=parseD(p.monday);
-  p.days.forEach((day,i)=>{
-    const date=addDays(mon,i).getDate();
-    const evs=day.events.map((e,j)=>({e,j})).filter(o=>o.e.title.trim());
-    if(!evs.length) return;
-    const allMem=evs.every(o=>o.e.cat==="memorial");
+  cards.forEach(({i,to,evs})=>{
+    const multi=to>i, d1=addDays(mon,i).getDate(), d2=addDays(mon,to).getDate();
+    const dateStr=multi?`${d1}–${d2}`:String(d1), wdStr=multi?`${WD2[i]}–${WD2[to]}`.toLowerCase():WD[i];
+    let dfs=u(50); while(tw(dateStr,fnt(800,dfs,true))>dateW-u(10) && dfs>u(20)) dfs-=1;
+    const allMem=evs.every(o=>o.e.cat==="memorial"&&!o.e.color);
     const pad=u(22), cx=dx+u(28)+dateW, cwid=dcw-u(56)-dateW-u(26);
     const rows=[]; let h=pad;
     if(allMem){
@@ -306,22 +320,25 @@ function buildLayout(p,fmt,k,extra){
         if(ei) h+=u(8);
         rows.push({y:h,j:o.j,kind:"mem",ls,h:u(26)+ls.length*u(36)}); h+=u(26)+ls.length*u(36); });
     } else {
-      evs.forEach((o,ei)=>{ if(ei) h+=u(12); const r=flowEvent(o.e,cwid,u); rows.push({y:h,j:o.j,kind:"flow",r,h:r.h}); h+=r.h; });
+      evs.forEach((o,ei)=>{ if(ei) h+=u(12); const r=flowEvent(o.e,cwid,u); rows.push({y:h,j:o.j,kind:"flow",r,h:r.h,color:o.e.color}); h+=r.h; });
     }
     const rowsH=h-pad;
     h=Math.max(h+pad,u(116))+grow;
     const dy=(h-rowsH)/2-pad, dateTop=y+(h-u(78))/2;
     rect(dx,y,dcw,h,u(22),allMem?"#2E2A3A":WHITE);
-    text(dx+u(28),dateTop+u(40),String(date),fnt(800,u(50),true),allMem?WHITE:INK);
-    text(dx+u(28),dateTop+u(72),WD[i],fnt(700,u(22)),allMem?"#C9C4D6":MUT);
+    text(dx+u(28),dateTop+u(40),dateStr,fnt(800,dfs,true),allMem?WHITE:INK);
+    text(dx+u(28),dateTop+u(72),wdStr,fnt(700,u(22)),allMem?"#C9C4D6":MUT);
     rows.forEach(r=>{
       reg(`event:${i}:${r.j}`,cx-u(6),y+dy+r.y-u(2),cwid+u(12),r.h+u(4),`Событие: ${p.days[i].events[r.j].title}`);
       if(r.kind==="mem"){
         text(cx,y+dy+r.y+u(18),"ПАМЯТНАЯ ДАТА",fnt(800,u(18)),"#C9C4D6",u(1.4));
         r.ls.forEach((l,li)=>text(cx,y+dy+r.y+u(26)+u(28)+li*u(36),l,fnt(800,u(27)),WHITE));
-      } else r.r.draw(cx,y+dy+r.y,ops);
+      } else {
+        if(r.color&&HL[r.color]) rect(cx-u(8),y+dy+r.y-u(1),cwid+u(16),r.h+u(2),u(10),HL[r.color].c);
+        r.r.draw(cx,y+dy+r.y,ops);
+      }
     });
-    regs.push({add:i,x:dx+dcw-u(30),y:y+h/2,label:`Добавить событие: ${WD[i]}`});
+    if(!multi) regs.push({add:i,x:dx+dcw-u(30),y:y+h/2,label:`Добавить событие: ${WD[i]}`});
     y+=h+gap;
   });
   if(nFull) y-=gap;
@@ -522,7 +539,7 @@ function normalize(raw){
   p.alisa={show:a.show!==false,look:LOOKS.some(l=>l.id===a.look)?a.look:"guide",phrase:str(a.phrase)};
   const t=r.themes||{}; p.themes={title:str(t.title,"Темы недели"),lines:str(t.lines),note:str(t.note)};
   p.days=Array.from({length:7},(_,i)=>{ const d=(r.days||[])[i]||{};
-    return {note:"",events:(Array.isArray(d.events)?d.events:[]).map(e=>({cat:CATS[e&&e.cat]?e.cat:"other",catLabel:str(e&&e.catLabel),title:str(e&&e.title),details:str(e&&e.details)}))}; });
+    return {note:"",events:(Array.isArray(d.events)?d.events:[]).map(e=>({cat:CATS[e&&e.cat]?e.cat:"other",catLabel:str(e&&e.catLabel),title:str(e&&e.title),details:str(e&&e.details),to:(e&&Number.isInteger(e.to)&&e.to>i&&e.to<7)?e.to:undefined,color:(e&&HL[e.color])?e.color:undefined}))}; });
   const dt=Array.isArray(r.duty)?r.duty:[], labels=["Дежурные классы","Дежурная администрация"];
   p.duty=[0,1].map(i=>({label:labels[i],value:str(dt[i]&&dt[i].value)}));
   return p;
@@ -618,6 +635,11 @@ function renderPanel(){
     <label for="fTitle">Название<input id="fTitle" value="${esc(e.title)}" placeholder="Что будет" data-ev="title"></label>
     <label for="fDetails">Класс, кабинет, время<input id="fDetails" value="${esc(e.details)}" placeholder="8А · каб. 27 · 15:00" data-ev="details"></label>
     <div class="chips" role="group" aria-label="Метка">${Object.entries(CATS).map(([k,v])=>`<button type="button" class="chip" id="cat-${k}" data-cat="${k}" aria-pressed="${k===e.cat}" style="background:${v.bg};color:${v.fg}">${esc(k==="other"?"СВОЯ…":v.label)}</button>`).join("")}</div>
+    ${i<6?`<label for="fTo">Сколько идёт<select id="fTo"><option value="0">Один день</option>${[...Array(6-i)].map((_,x)=>{ const k=i+x+1; return `<option value="${k}"${e.to===k?" selected":""}>До ${WD2[k].toLowerCase()}, ${addDays(mon,k).getDate()} ${MONTHS[addDays(mon,k).getMonth()]}</option>`; }).join("")}</select></label>`:""}
+    <div class="swatches" role="group" aria-label="Выделить цветом"><span>Выделить</span>
+      <button type="button" class="swatch none" data-color="" aria-pressed="${!e.color}" aria-label="Без выделения">✕</button>
+      ${Object.entries(HL).map(([k,v])=>`<button type="button" class="swatch" data-color="${k}" aria-pressed="${e.color===k}" aria-label="${v.name}" title="${v.name}" style="background:${v.c}"></button>`).join("")}
+    </div>
     ${e.cat==="other"?`<label for="fCustom">Текст метки<input id="fCustom" value="${esc(e.catLabel)}" placeholder="ЭКСКУРСИЯ" data-ev="catLabel"></label>`:""}
     <div class="row">
       ${n>1?`<button type="button" data-act="up" aria-label="Переместить выше">↑</button><button type="button" data-act="down" aria-label="Переместить ниже">↓</button>`:""}
@@ -638,6 +660,7 @@ function onPanelInput(e){
   const t=e.target, p=cur();
   if(t.id==="fMonday"){ if(t.value) goWeek(fmtD(toMonday(parseD(t.value)))); return; }
   if(t.dataset.f){ const path=t.dataset.f.split("."); let o=p; for(let i=0;i<path.length-1;i++) o=o[path[i]]; o[path[path.length-1]]=t.value; return changed(); }
+  if(t.id==="fTo"){ const ev=eventOf(sel); if(ev&&ev.e){ const v=+t.value; if(v) ev.e.to=v; else delete ev.e.to; changed(); } return; }
   if(t.dataset.ev){ const ev=eventOf(sel); if(ev&&ev.e){ ev.e[t.dataset.ev]=t.value; changed(); } return; }
   if(t.dataset.n!==undefined){ p.days[t.dataset.n].note=t.value; return changed(); }
   if(t.dataset.d!==undefined){ p.duty[t.dataset.d].value=t.value; return changed(); }
@@ -651,6 +674,7 @@ function onPanelClick(e){
   const b=e.target.closest("button"); if(!b) return;
   const p=cur();
   if(b.dataset.look){ p.alisa.look=b.dataset.look; document.querySelectorAll(".look").forEach(x=>x.setAttribute("aria-pressed",x===b)); return changed(); }
+  if(b.dataset.color!==undefined){ const ev=eventOf(sel); if(b.dataset.color) ev.e.color=b.dataset.color; else delete ev.e.color; document.querySelectorAll(".swatch").forEach(x=>x.setAttribute("aria-pressed",x===b)); return changed(); }
   if(b.dataset.cat){ const ev=eventOf(sel); ev.e.cat=b.dataset.cat; const id=b.id; renderPanel(); $(b.dataset.cat==="other"?"fCustom":id).focus(); return changed(); }
   const a=b.dataset.act; if(!a) return;
   if(a==="done"){ const prev=sel; select(null); changed(); const h=[...document.querySelectorAll(".hot")].find(x=>x.dataset.k===prev); if(h) h.focus(); return; }
@@ -689,7 +713,7 @@ function postText(p){
   if(th.length) out.push("",p.themes.title+":",...th.map(s=>"• "+s));
   p.days.forEach((d,i)=>{ const ee=d.events.filter(e=>e.title.trim()); if(!ee.length) return;
     out.push("",`${WD2[i]}, ${addDays(mon,i).getDate()} ${MONTHS[addDays(mon,i).getMonth()]}`);
-    ee.forEach(e=>{ const l=e.cat==="other"?(e.catLabel||"").trim():CATS[e.cat].label; out.push(`— ${l?l+": ":""}${e.title.trim()}${e.details.trim()?" ("+e.details.trim()+")":""}`); }); });
+    ee.forEach(e=>{ const l=e.cat==="other"?(e.catLabel||"").trim():CATS[e.cat].label; out.push(`— ${l?l+": ":""}${e.title.trim()}${e.details.trim()?" ("+e.details.trim()+")":""}${e.to>i?", до "+WD2[e.to].toLowerCase()+" "+addDays(mon,e.to).getDate():""}`); }); });
   const du=p.duty.filter(d=>d.value.trim()); if(du.length) out.push("",...du.map(d=>`${d.label}: ${d.value.trim().replace(/\n/g,", ")}`));
   return out.join("\n");
 }
@@ -709,7 +733,7 @@ function render(){
   if(html!==hotSig){ const a=document.activeElement, k=a&&a.dataset&&(a.dataset.k||a.dataset.add); $("hots").innerHTML=html; hotSig=html;
     if(k){ const n=$("hots").querySelector(`[data-k="${k}"],[data-add="${k}"]`); if(n) n.focus(); } }
   const pv=previewPlan(), mon=parseD(pv.monday), miss=[];
-  pv.days.forEach((d,i)=>{ if(!d.events.some(e=>e.title.trim())) miss.push(`<button type="button" data-day="${i}" aria-label="Добавить событие: ${WD[i]}">+ ${WD2[i]} ${addDays(mon,i).getDate()}</button>`); });
+  pv.days.forEach((d,i)=>{ if(!d.events.some(e=>e.title.trim()&&!(e.to>i))) miss.push(`<button type="button" data-day="${i}" aria-label="Добавить событие: ${WD[i]}">+ ${WD2[i]} ${addDays(mon,i).getDate()}</button>`); });
   pv.duty.forEach((d,i)=>{ if(!d.value.trim()) miss.push(`<button type="button" data-open="duty:${i}">+ ${esc(d.label)}</button>`); });
   if(!pv.themes.lines.trim()&&!pv.themes.note.trim()) miss.push(`<button type="button" data-open="themes">+ Темы недели</button>`);
   if(!pv.alisa.show) miss.push(`<button type="button" data-open="alisa">+ Алиса</button>`);
